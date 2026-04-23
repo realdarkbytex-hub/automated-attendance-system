@@ -1,0 +1,85 @@
+/**************************************
+ * VERSION B — SELECTED EMAILS ONLY
+ * 08:30  -> grant EDIT to list below
+ * 09:15  -> remove EDIT from them
+ **************************************/
+
+const RUN_WEEKDAYS_ONLY = true;                 // set false to run every day
+const UNLOCK_TIME = { hourIST: 8,  minute: 30 };
+const LOCK_TIME   = { hourIST: 9,  minute: 15 };
+
+// ✅ Only these people can edit between 8:30–9:15
+const WINDOW_EDITORS = [
+  "user1@gmail.com",
+  "user2@gmail.com",
+  "user3@gmail.com",
+  "user4@gmail.com",
+  "user5@gmail.com",
+  "user6@gmail.com",
+  "user7@gmail.com",
+  "user8@gmail.com"
+];
+
+// ✅ These users ALWAYS keep edit even after 9:15 (add leaders/faculty if needed)
+const ALWAYS_KEEP_EDITORS = [
+  // "coordinator@invertis.org"
+];
+
+/********** helpers **********/
+function _activeFile(){ return DriveApp.getFileById(SpreadsheetApp.getActive().getId()); }
+function _isSunday(){ return new Date().getDay() === 0; }
+function _shouldRunToday(){ return !(RUN_WEEKDAYS_ONLY && _isSunday()); }
+
+/********** 08:30 — grant edit to selected emails only **********/
+function unlockAttendance() {
+  if (!_shouldRunToday()) { Logger.log("Unlock skipped (Sunday)."); return; }
+  const file = _activeFile();
+
+  // Keep link sharing restricted (no public access)
+  file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE);
+
+  // Grant edit to your selected in-charges
+  file.addEditors(WINDOW_EDITORS);
+
+  Logger.log("Unlocked: edit granted to WINDOW_EDITORS until 09:15.");
+}
+
+/********** 09:15 — revoke edit from window editors **********/
+function lockAttendance() {
+  if (!_shouldRunToday()) { Logger.log("Lock skipped (Sunday)."); return; }
+  const file = _activeFile();
+  const owner = Session.getEffectiveUser().getEmail();
+  const keep = new Set([owner, ...ALWAYS_KEEP_EDITORS.map(String)]);
+
+  // Remove all editors except owner/whitelist
+  const editors = file.getEditors();
+  for (let i = editors.length - 1; i >= 0; i--) {
+    const e = editors[i];
+    const email = e.getEmail ? e.getEmail() : "";
+    if (!keep.has(email)) file.removeEditor(e);
+  }
+
+  // Keep file private (safest). If you want read-only for all, switch to ANYONE_WITH_LINK/VIEW.
+  file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE);
+
+  Logger.log("Locked: non-whitelisted editors removed; file is private.");
+}
+
+/********** one-time: install daily triggers (IST) **********/
+function createTimeTriggers() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => ["unlockAttendance","lockAttendance"].includes(t.getHandlerFunction()))
+    .forEach(t => ScriptApp.deleteTrigger(t));
+
+  ScriptApp.newTrigger("unlockAttendance")
+    .timeBased().everyDays(1).atHour(UNLOCK_TIME.hourIST).nearMinute(UNLOCK_TIME.minute).create();
+
+  ScriptApp.newTrigger("lockAttendance")
+    .timeBased().everyDays(1).atHour(LOCK_TIME.hourIST).nearMinute(LOCK_TIME.minute).create();
+
+  Logger.log("Triggers set: unlock 08:30 IST, lock 09:15 IST.");
+}
+
+/********** optional quick tests **********/
+function testUnlockNow(){ unlockAttendance(); }
+function testLockNow(){ lockAttendance(); }
